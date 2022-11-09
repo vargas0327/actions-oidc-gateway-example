@@ -257,7 +257,7 @@ func main() {
 	// Simple default logger is enough here, for structured logging see https://www.honeybadger.io/blog/golang-logging/
 	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
 
-	port := getEnv("ACTIONS_OIDC_PROXY_PORT", "8000")
+	port := getEnv("ACTIONS_OIDC_PROXY_PORT", "8080")
 	// Wildcards mean allow all, should always customize owner and/or repos/aud for security
 	owners := strings.Split(getEnv("ACTIONS_OIDC_PROXY_OWNERS", "*"), ",")
 	repos := strings.Split(getEnv("ACTIONS_OIDC_PROXY_REPOS", "*"), ",")
