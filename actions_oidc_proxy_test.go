@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/golang-jwt/jwt"
+	"github.com/golang-jwt/jwt/v4"
 )
 
 func TestGetKeyForTokenMaker(t *testing.T) {
@@ -113,8 +113,8 @@ func TestValidateTokenCameFromGitHub(t *testing.T) {
 	}
 
 	// Test unsigned token is not allowed
-	unsigendToken := jwt.NewWithClaims(jwt.SigningMethodNone, tokenClaims)
-	unsigendToken.Header["kid"] = "testKey"
+	unsignedToken := jwt.NewWithClaims(jwt.SigningMethodNone, tokenClaims)
+	unsignedToken.Header["kid"] = "testKey"
 
 	noneToken, err := token.SignedString("none signing method allowed")
 

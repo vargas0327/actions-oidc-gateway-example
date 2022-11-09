@@ -1,0 +1,8 @@
+services:
+  app:
+    container_name: actions_oidc_proxy
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - ACTIONS_OIDC_PROXY_OWNERS=ruial
