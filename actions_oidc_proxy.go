@@ -167,6 +167,11 @@ func isValidClaim(claimKey string, claims jwt.MapClaims, allowedClaimValues map[
 }
 
 func (gatewayContext *GatewayContext) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	if req.Method == http.MethodGet && strings.ToLower(req.URL.Path) == "/ping" {
+		fmt.Fprintln(w, "PONG")
+		return
+	}
+
 	// This http server only functions as an HTTP CONNECT proxy tunnel
 	if req.Method != http.MethodConnect {
 		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)

@@ -2,6 +2,7 @@ services:
   app:
     container_name: actions_oidc_proxy
     build: .
+    # image: ghcr.io/ruial/actions-oidc-proxy:main
     ports:
       - "8000:8000"
     environment:
