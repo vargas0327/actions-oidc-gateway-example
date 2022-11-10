@@ -193,7 +193,7 @@ func isValidClaim(claimKey string, claims jwt.MapClaims, allowedClaimValues map[
 }
 
 func (gatewayContext *GatewayContext) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	if req.Method == http.MethodGet && strings.ToLower(req.URL.Path) == "/ping" {
+	if req.Method == http.MethodGet && req.URL.Path == "/ping" {
 		fmt.Fprintln(w, "PONG")
 		return
 	}
@@ -219,7 +219,7 @@ func (gatewayContext *GatewayContext) ServeHTTP(w http.ResponseWriter, req *http
 	// Check if the OIDC token came from any GitHub Actions workflow
 	claims, err := validateTokenCameFromGitHub(oidcTokenString, gatewayContext)
 	if err != nil {
-		log.Println(err)
+		log.Println(err, ":", req.RemoteAddr)
 		http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 		return
 	}
