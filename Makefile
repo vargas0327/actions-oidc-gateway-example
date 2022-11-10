@@ -10,7 +10,7 @@ request-https:
 	@https_proxy=http://user:${GITHUB_OIDC_TOKEN}@localhost:8080 curl -v --max-time 3 https://ipv4.icanhazip.com
 
 request-https-noproxy:
-	@no_proxy=amazonaws.com http_proxy=http://user:${GITHUB_OIDC_TOKEN}@localhost:8080 curl -v --max-time 3 https://s3.amazonaws.com/test
+	@no_proxy=amazonaws.com https_proxy=http://user:${GITHUB_OIDC_TOKEN}@localhost:8080 curl -v --max-time 3 https://s3.amazonaws.com/test
 
 request-http:
 	@http_proxy=http://user:${GITHUB_OIDC_TOKEN}@localhost:8080 curl -v --max-time 3 http://ipv4.icanhazip.com

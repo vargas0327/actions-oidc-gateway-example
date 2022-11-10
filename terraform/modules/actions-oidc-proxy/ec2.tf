@@ -31,6 +31,13 @@ resource "aws_lb_target_group" "actions_oidc_proxy_nlb_target" {
   target_type = "ip"
   vpc_id      = var.vpc.id
 
+  preserve_client_ip = true
+
+  stickiness {
+    enabled = true
+    type    = "source_ip"
+  }
+
   health_check {
     protocol = "HTTP"
     port     = local.proxy_port_internal
