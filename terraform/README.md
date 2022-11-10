@@ -23,3 +23,5 @@ AWS_PROFILE=<YOUR PROFILE> terraform apply
 ```
 
 For production environments make sure to configure remote state and harden this setup according to your security and network requirements.
+
+To enable TLS on the network load balancer, you need to add a new listener with protocol TLS and you can generate a free certificate from AWS Certificate Manager, if you have control of your public DNS zone in Route53 or another DNS provider.

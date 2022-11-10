@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -37,6 +38,7 @@ type JWKS struct {
 type GatewayContext struct {
 	jwksCache      []byte
 	jwksLastUpdate time.Time
+	httpClient     *http.Client
 	allowedOwners  map[string]bool
 	allowedRepos   map[string]bool
 	allowedAuds    map[string]bool
@@ -92,7 +94,7 @@ func validateTokenCameFromGitHub(oidcTokenString string, gc *GatewayContext) (jw
 	defer gc.Unlock()
 
 	if now.Sub(gc.jwksLastUpdate) > time.Minute || len(gc.jwksCache) == 0 {
-		resp, err := http.Get("https://token.actions.githubusercontent.com/.well-known/jwks")
+		resp, err := gc.httpClient.Get("https://token.actions.githubusercontent.com/.well-known/jwks")
 		if err != nil {
 			log.Println(err)
 			return nil, fmt.Errorf("Unable to get JWKS configuration")
@@ -128,8 +130,8 @@ func transfer(destination io.WriteCloser, source io.ReadCloser) {
 	io.Copy(destination, source)
 }
 
-func handleProxyRequest(w http.ResponseWriter, req *http.Request) {
-	proxyConn, err := net.DialTimeout("tcp", req.Host, 5*time.Second)
+func handleTunnel(w http.ResponseWriter, req *http.Request, gc *GatewayContext) {
+	proxyConn, err := net.DialTimeout("tcp", req.Host, gc.httpClient.Timeout)
 	if err != nil {
 		log.Println(err)
 		http.Error(w, http.StatusText(http.StatusRequestTimeout), http.StatusRequestTimeout)
@@ -156,6 +158,30 @@ func handleProxyRequest(w http.ResponseWriter, req *http.Request) {
 	go transfer(reqConn, proxyConn)
 }
 
+func handleHTTP(w http.ResponseWriter, req *http.Request, gc *GatewayContext) {
+	// A more sophisticated http proxy would remove all hop headers and append to X-Forwarded-For like https://gist.github.com/yowu/f7dc34bd4736a65ff28d
+	req.RequestURI = ""
+	req.Header.Del("Proxy-Authorization")
+	resp, err := gc.httpClient.Do(req)
+	if err != nil {
+		log.Println(err)
+		http.Error(w, http.StatusText(http.StatusServiceUnavailable), http.StatusServiceUnavailable)
+		return
+	}
+	defer resp.Body.Close()
+	copyHeader(w.Header(), resp.Header)
+	w.WriteHeader(resp.StatusCode)
+	io.Copy(w, resp.Body)
+}
+
+func copyHeader(dst, src http.Header) {
+	for k, vv := range src {
+		for _, v := range vv {
+			dst.Add(k, v)
+		}
+	}
+}
+
 func isValidClaim(claimKey string, claims jwt.MapClaims, allowedClaimValues map[string]bool) bool {
 	authorized := true
 	claimValue := claims[claimKey].(string)
@@ -172,12 +198,6 @@ func (gatewayContext *GatewayContext) ServeHTTP(w http.ResponseWriter, req *http
 		return
 	}
 
-	// This http server only functions as an HTTP CONNECT proxy tunnel
-	if req.Method != http.MethodConnect {
-		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
-		return
-	}
-
 	// Only Proxy Basic Auth credentials supported which are encoded in base64
 	b64credentials := strings.TrimPrefix(req.Header.Get("Proxy-Authorization"), "Basic ")
 	credentials, err := base64.StdEncoding.DecodeString(b64credentials)
@@ -190,7 +210,7 @@ func (gatewayContext *GatewayContext) ServeHTTP(w http.ResponseWriter, req *http
 	// We are interested in the password, which has the oidc token
 	credentialsParts := strings.Split(string(credentials), ":")
 	if len(credentialsParts) != 2 {
-		log.Println("Proxy-Authorization header required")
+		log.Println("Valid Proxy-Authorization header required")
 		http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 		return
 	}
@@ -233,9 +253,13 @@ func (gatewayContext *GatewayContext) ServeHTTP(w http.ResponseWriter, req *http
 	}
 
 	// Now that claims and host have been verified, we can service the request
-	handleProxyRequest(w, req)
+	if req.Method == http.MethodConnect {
+		handleTunnel(w, req, gatewayContext)
+	} else {
+		handleHTTP(w, req, gatewayContext)
+	}
 
-	log.Println("Handled request:", host, ":", claims["repository"], ":", claims["aud"])
+	log.Println("Handled request:", host, ":", req.Method, ":", claims["repository"], ":", claims["aud"])
 }
 
 func sliceToSet[K comparable](s []K) map[K]bool {
@@ -257,15 +281,24 @@ func main() {
 	// Simple default logger is enough here, for structured logging see https://www.honeybadger.io/blog/golang-logging/
 	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
 
+	// Load configurations from environment variables
 	port := getEnv("ACTIONS_OIDC_PROXY_PORT", "8080")
-	// Wildcards mean allow all, should always customize owner and/or repos/aud for security
+	timeout, _ := strconv.Atoi(getEnv("ACTIONS_OIDC_PROXY_TIMEOUT", "10"))
+
+	// Wildcards mean allow all, should always customize owner and/or repos/aud for security reasons
 	owners := strings.Split(getEnv("ACTIONS_OIDC_PROXY_OWNERS", "*"), ",")
 	repos := strings.Split(getEnv("ACTIONS_OIDC_PROXY_REPOS", "*"), ",")
 	auds := strings.Split(getEnv("ACTIONS_OIDC_PROXY_AUDS", "*"), ",")
 	hosts := strings.Split(getEnv("ACTIONS_OIDC_PROXY_HOSTS", "*"), ",")
 
+	if timeout < 1 {
+		log.Fatalln("Timeout must be an integer > 0")
+	}
+
+	timeoutDuration := time.Duration(timeout) * time.Second
 	gatewayContext := &GatewayContext{
 		jwksLastUpdate: time.Now(),
+		httpClient:     &http.Client{Timeout: timeoutDuration},
 		allowedOwners:  sliceToSet(owners),
 		allowedRepos:   sliceToSet(repos),
 		allowedAuds:    sliceToSet(auds),
@@ -275,8 +308,8 @@ func main() {
 	server := http.Server{
 		Addr:         ":" + port,
 		Handler:      gatewayContext,
-		ReadTimeout:  60 * time.Second,
-		WriteTimeout: 60 * time.Second,
+		ReadTimeout:  timeoutDuration * 2,
+		WriteTimeout: timeoutDuration * 2,
 	}
 
 	log.Println("Starting Actions OIDC Proxy on port", port)

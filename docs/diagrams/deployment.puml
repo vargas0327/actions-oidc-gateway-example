@@ -1,0 +1,22 @@
+@startuml deployment
+skinparam monochrome true
+skinparam Ranksep 60
+skinparam Nodesep 80
+skinparam linetype ortho
+skinparam defaultTextAlignment center
+
+node "GitHub" {
+  [Actions] -> [OIDC] : Get token
+}
+
+node "Public Network" {
+  [Actions] ---> [Load Balancer] : Send token
+}
+
+node "Private Network" {
+  [Load Balancer] -> [Proxy]
+  [Proxy] -up-> [OIDC]: Verify token
+  [Proxy] --> [Private Service A]
+  [Proxy] -> [Private Service B]
+}
+@enduml
